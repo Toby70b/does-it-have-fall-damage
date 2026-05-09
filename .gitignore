@@ -1,0 +1,13 @@
+*/.terraform
+*/.terraform.lock.hcl
+.idea/*
+*.iws
+*.iml
+*/node_modules
+*/package-lock.json
+*/dist/
+*/.idea
+*.egg-info/
+**/*.zip
+**/__pycache__/
+**/*.pyc
