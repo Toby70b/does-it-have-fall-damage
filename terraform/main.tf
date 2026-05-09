@@ -151,7 +151,7 @@ resource "aws_lambda_function" "game_capsule_image_lookup" {
   environment {
     variables = {
       BUCKET_NAME = aws_s3_bucket.steam_game_capsule_image.bucket
-      STEAM_STORE_BASE_URL = "https://store.steampowered.com"
+      STEAM_STORE_BASE_URL = var.steam_store_base_url
     }
   }
 }
