@@ -1,9 +1,9 @@
-import boto3
-import gzip
 import json
 import logging
 import os
-import requests
+from urllib import request, parse, error
+
+import boto3
 
 STEAM_STORE_BASE_URL = os.environ["STEAM_STORE_BASE_URL"]
 BUCKET_NAME = os.environ["BUCKET_NAME"]
@@ -13,18 +13,22 @@ logger = logging.getLogger(__name__)
 
 s3 = boto3.client("s3")
 
+
 def get_capsule_image_from_steam_store(steam_game_id):
-    steam_game_data_response = requests.get(
-        f"{STEAM_STORE_BASE_URL}/api/appdetails",
-        params={"appids": steam_game_id, "filters": "basic"}
-    )
-    steam_game_data_response.raise_for_status()
+    params = parse.urlencode({"appids": steam_game_id})
+    url = f"{STEAM_STORE_BASE_URL}/api/appdetails?{params}"
 
-    capsule_image_url = steam_game_data_response.json()[steam_game_id]["data"]["capsule_image"]
-    capsule_image_response = requests.get(capsule_image_url)
-    capsule_image_response.raise_for_status()
+    with request.urlopen(url) as response:
+        if response.status != 200:
+            raise error.HTTPError(url, response.status, "Failed to fetch game data", {}, None)
+        data = json.loads(response.read())
 
-    return capsule_image_response.content
+    capsule_image_url = data[str(steam_game_id)]["data"]["capsule_image"]
+
+    with request.urlopen(capsule_image_url) as img_response:
+        if img_response.status != 200:
+            raise error.HTTPError(capsule_image_url, img_response.status, "Failed to fetch capsule image", {}, None)
+        return img_response.read()
 
 
 def handler(event, context):
@@ -33,6 +37,12 @@ def handler(event, context):
     for record in event["Records"]:
         try:
             message = json.loads(record["body"])
+            logger.info("Processing message: %s", message)
+
+            if "game_data" not in message or "steam_game_id" not in message["game_data"]:
+                logger.error("Unexpected message structure, skipping record %s: %s", record["messageId"], message)
+                continue
+
             steam_game_id = message["game_data"]["steam_game_id"]
 
             capsule_image = get_capsule_image_from_steam_store(steam_game_id)
@@ -46,9 +56,8 @@ def handler(event, context):
 
             logger.info("Uploaded capsule image for game %s", steam_game_id)
         except Exception as e:
-            logger.error("Failed to process record %s: %s", record["messageId"], e)
+            logger.error("Failed to process record %s: %s. Body: %s", record["messageId"], e, record["body"], exc_info=True)
             failed_message_ids.append({"itemIdentifier": record["messageId"]})
 
     logger.info("Processed %d records, %d failed", len(event["Records"]), len(failed_message_ids))
     return {"batchItemFailures": failed_message_ids}
-

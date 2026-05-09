@@ -6,6 +6,7 @@ resource "aws_sqs_queue" "game_capsule_image_lookup" {
     deadLetterTargetArn = aws_sqs_queue.game_capsule_image_lookup_dlq.arn
     maxReceiveCount     = 5
   })
+  visibility_timeout_seconds = 360
 
   tags = var.tags
 }
@@ -30,7 +31,7 @@ data "aws_sns_topic" "new_game_item_publisher" {
   name = "new-game-items"
 }
 
-resource "aws_sns_topic_subscription" "user_updates_sqs_target" {
+resource "aws_sns_topic_subscription" "game_capsule_image_lookup_subscription" {
   topic_arn = data.aws_sns_topic.new_game_item_publisher.arn
   protocol  = "sqs"
   endpoint  = aws_sqs_queue.game_capsule_image_lookup.arn
@@ -79,15 +80,16 @@ resource "random_id" "bucket_suffix" {
 }
 
 resource "aws_s3_bucket" "steam_game_capsule_image" {
-  bucket        = "steam-game-capsule_image-${random_id.bucket_suffix.hex}"
+  bucket        = "steam-game-capsule-image-${random_id.bucket_suffix.hex}"
   tags          = var.tags
 }
 
 # --- Lambda --- #
 data "archive_file" "game_capsule_image_lookup" {
   type        = "zip"
-  source_dir  = "${path.module}/../lambdas/capsule_image_lookup/src"
+  source_dir  = "${path.module}/../lambdas/capsule_image_lookup/"
   output_path = "${path.module}/files/capsule_image_lookup.zip"
+  excludes    = ["requirements.txt"]
 }
 
 resource "aws_iam_role" "game_capsule_image_lookup_lambda_role" {
@@ -140,16 +142,16 @@ resource "aws_lambda_function" "game_capsule_image_lookup" {
 
   function_name    = "game-capsule-image-lookup"
   role             = aws_iam_role.game_capsule_image_lookup_lambda_role.arn
-  handler          = "capsule_image_lookup.handler.handler"
+  handler          = "capsule_image_lookup.handler"
   runtime          = "python3.12"
-  timeout          = 300
+  timeout          = 60
   memory_size      = 128
   tags             = var.tags
 
   environment {
     variables = {
       BUCKET_NAME = aws_s3_bucket.steam_game_capsule_image.bucket
-      STEAM_STORE_BASE_URL = "https://store.steampowered.com/api/appdetails"
+      STEAM_STORE_BASE_URL = "https://store.steampowered.com"
     }
   }
 }
