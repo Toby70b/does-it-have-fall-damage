@@ -74,6 +74,37 @@ data "aws_iam_policy_document" "sqs_queue_policy" {
   }
 }
 
+data "aws_iam_policy_document" "origin_bucket_policy" {
+  statement {
+    sid    = "AllowCloudFrontServicePrincipalReadOnly"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = [
+      "s3:GetObject",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.steam_game_capsule_image.arn}/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.s3_capsule_image_distribution.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "bucket_policy" {
+  bucket = aws_s3_bucket.steam_game_capsule_image.bucket
+  policy = data.aws_iam_policy_document.origin_bucket_policy.json
+}
+
 # --- S3 === #
 resource "random_id" "bucket_suffix" {
   byte_length = 4
@@ -82,6 +113,14 @@ resource "random_id" "bucket_suffix" {
 resource "aws_s3_bucket" "steam_game_capsule_image" {
   bucket        = "steam-game-capsule-image-${random_id.bucket_suffix.hex}"
   tags          = var.tags
+}
+
+resource "aws_s3_bucket_public_access_block" "steam_game_capsule_image" {
+  bucket                  = aws_s3_bucket.steam_game_capsule_image.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 # --- Lambda --- #
@@ -171,3 +210,4 @@ resource "aws_lambda_event_source_mapping" "new_game_item_stream" {
 
   tags = var.tags
 }
+
