@@ -32,9 +32,9 @@ data "aws_sns_topic" "new_game_item_publisher" {
 }
 
 resource "aws_sns_topic_subscription" "game_capsule_image_lookup_subscription" {
-  topic_arn = data.aws_sns_topic.new_game_item_publisher.arn
-  protocol  = "sqs"
-  endpoint  = aws_sqs_queue.game_capsule_image_lookup.arn
+  topic_arn            = data.aws_sns_topic.new_game_item_publisher.arn
+  protocol             = "sqs"
+  endpoint             = aws_sqs_queue.game_capsule_image_lookup.arn
   raw_message_delivery = true
 }
 
@@ -74,14 +74,55 @@ data "aws_iam_policy_document" "sqs_queue_policy" {
   }
 }
 
-# --- S3 === #
+# --- S3 --- #
+data "aws_iam_policy_document" "origin_bucket_policy" {
+  statement {
+    sid    = "AllowCloudFrontServicePrincipalReadOnly"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+
+    resources = [
+      aws_s3_bucket.steam_game_capsule_image.arn,
+      "${aws_s3_bucket.steam_game_capsule_image.arn}/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.s3_capsule_image_distribution.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "bucket_policy" {
+  bucket = aws_s3_bucket.steam_game_capsule_image.bucket
+  policy = data.aws_iam_policy_document.origin_bucket_policy.json
+}
+
 resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
 resource "aws_s3_bucket" "steam_game_capsule_image" {
-  bucket        = "steam-game-capsule-image-${random_id.bucket_suffix.hex}"
-  tags          = var.tags
+  bucket = "steam-game-capsule-image-${random_id.bucket_suffix.hex}"
+  tags   = var.tags
+}
+
+resource "aws_s3_bucket_public_access_block" "steam_game_capsule_image" {
+  bucket                  = aws_s3_bucket.steam_game_capsule_image.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 # --- Lambda --- #
@@ -140,25 +181,25 @@ resource "aws_lambda_function" "game_capsule_image_lookup" {
   filename         = data.archive_file.game_capsule_image_lookup.output_path
   source_code_hash = data.archive_file.game_capsule_image_lookup.output_base64sha256
 
-  function_name    = "game-capsule-image-lookup"
-  role             = aws_iam_role.game_capsule_image_lookup_lambda_role.arn
-  handler          = "capsule_image_lookup.handler"
-  runtime          = "python3.12"
-  timeout          = 60
-  memory_size      = 128
-  tags             = var.tags
+  function_name = "game-capsule-image-lookup"
+  role          = aws_iam_role.game_capsule_image_lookup_lambda_role.arn
+  handler       = "capsule_image_lookup.handler"
+  runtime       = "python3.12"
+  timeout       = 60
+  memory_size   = 128
+  tags          = var.tags
 
   environment {
     variables = {
-      BUCKET_NAME = aws_s3_bucket.steam_game_capsule_image.bucket
+      BUCKET_NAME          = aws_s3_bucket.steam_game_capsule_image.bucket
       STEAM_STORE_BASE_URL = var.steam_store_base_url
     }
   }
 }
 
 resource "aws_lambda_event_source_mapping" "new_game_item_stream" {
-  event_source_arn  = aws_sqs_queue.game_capsule_image_lookup.arn
-  function_name     = aws_lambda_function.game_capsule_image_lookup.arn
+  event_source_arn = aws_sqs_queue.game_capsule_image_lookup.arn
+  function_name    = aws_lambda_function.game_capsule_image_lookup.arn
 
   # Batch settings -  need to consider initial setup scenario
   batch_size                         = 10
