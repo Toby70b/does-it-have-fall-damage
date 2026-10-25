@@ -57,7 +57,7 @@ resource "aws_cloudfront_distribution" "s3_capsule_image_distribution" {
 }
 
 resource "aws_cloudfront_response_headers_policy" "capsule_image_cache_headers" {
-  name = "image_cache_policy"
+  name = "capsule_image_cache_headers"
 
   custom_headers_config {
     items {
