@@ -20,6 +20,9 @@ resource "aws_cloudfront_distribution" "s3_capsule_image_distribution" {
   is_ipv6_enabled = true
   aliases         = local.aliases
   price_class     = "PriceClass_100"
+  # Keeps a request for / from reaching S3 as a ListObjects call.
+  # The object intentionally does not exist, so the bare domain 404s.
+  default_root_object = "index.html"
 
   origin {
     domain_name              = aws_s3_bucket.steam_game_capsule_image.bucket_regional_domain_name
