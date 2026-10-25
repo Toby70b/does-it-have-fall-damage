@@ -4,8 +4,8 @@ locals {
   aliases          = ["cdn.tobypeel.com"]
 }
 
-resource "aws_cloudfront_origin_access_control" "default" {
-  name                              = "default-oac"
+resource "aws_cloudfront_origin_access_control" "images" {
+  name                              = "images-oac"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
@@ -17,13 +17,13 @@ data "aws_cloudfront_cache_policy" "images" {
 
 resource "aws_cloudfront_distribution" "s3_capsule_image_distribution" {
   enabled         = true
-  is_ipv6_enabled = false
+  is_ipv6_enabled = true
   aliases         = local.aliases
   price_class     = "PriceClass_100"
 
   origin {
     domain_name              = aws_s3_bucket.steam_game_capsule_image.bucket_regional_domain_name
-    origin_access_control_id = aws_cloudfront_origin_access_control.default.id
+    origin_access_control_id = aws_cloudfront_origin_access_control.images.id
     origin_id                = local.s3_origin_id
   }
 
@@ -34,8 +34,8 @@ resource "aws_cloudfront_distribution" "s3_capsule_image_distribution" {
     viewer_protocol_policy = "redirect-to-https"
     compress               = false
 
-    cache_policy_id = data.aws_cloudfront_cache_policy.images.id
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.image_cache_policy.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.images.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.capsule_image_cache_headers.id
   }
 
   restrictions {
@@ -53,7 +53,7 @@ resource "aws_cloudfront_distribution" "s3_capsule_image_distribution" {
   tags = var.tags
 }
 
-resource "aws_cloudfront_response_headers_policy" "image_cache_policy" {
+resource "aws_cloudfront_response_headers_policy" "capsule_image_cache_headers" {
   name = "image_cache_policy"
 
   custom_headers_config {
@@ -71,7 +71,7 @@ data "aws_route53_zone" "capsule_domain" {
 }
 
 
-resource "aws_route53_record" "cloudfront" {
+resource "aws_route53_record" "cloudfront_a_record" {
   for_each = toset(local.aliases)
   zone_id  = data.aws_route53_zone.capsule_domain.zone_id
   name     = each.value
@@ -83,6 +83,20 @@ resource "aws_route53_record" "cloudfront" {
     evaluate_target_health = false
   }
 }
+
+resource "aws_route53_record" "cloudfront_aaaa_record" {
+  for_each = toset(local.aliases)
+  zone_id  = data.aws_route53_zone.capsule_domain.zone_id
+  name     = each.value
+  type     = "AAAA"
+
+  alias {
+    name                   = aws_cloudfront_distribution.s3_capsule_image_distribution.domain_name
+    zone_id                = aws_cloudfront_distribution.s3_capsule_image_distribution.hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
 resource "aws_acm_certificate" "cert" {
   region                    = "us-east-1"
   domain_name               = "*.${local.top_level_domain}"
