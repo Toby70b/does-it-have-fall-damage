@@ -70,7 +70,6 @@ data "aws_route53_zone" "capsule_domain" {
   private_zone = false
 }
 
-
 resource "aws_route53_record" "cloudfront_a_record" {
   for_each = toset(local.aliases)
   zone_id  = data.aws_route53_zone.capsule_domain.zone_id
