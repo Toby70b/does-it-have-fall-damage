@@ -8,6 +8,8 @@ import boto3
 STEAM_STORE_BASE_URL = os.environ["STEAM_STORE_BASE_URL"]
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 
+_HEADERS = {"User-Agent": "Mozilla/5.0"}
+
 logging.getLogger().setLevel(logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -18,14 +20,14 @@ def get_capsule_image_from_steam_store(steam_game_id):
     params = parse.urlencode({"appids": steam_game_id})
     url = f"{STEAM_STORE_BASE_URL}/api/appdetails?{params}"
 
-    with request.urlopen(url) as response:
+    with request.urlopen(request.Request(url, headers=_HEADERS)) as response:
         if response.status != 200:
             raise error.HTTPError(url, response.status, "Failed to fetch game data", {}, None)
         data = json.loads(response.read())
 
     capsule_image_url = data[str(steam_game_id)]["data"]["capsule_image"]
 
-    with request.urlopen(capsule_image_url) as img_response:
+    with request.urlopen(request.Request(capsule_image_url, headers=_HEADERS)) as img_response:
         if img_response.status != 200:
             raise error.HTTPError(capsule_image_url, img_response.status, "Failed to fetch capsule image", {}, None)
         return img_response.read()
