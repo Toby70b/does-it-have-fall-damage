@@ -1,14 +1,17 @@
 import json
 import logging
 import os
-from urllib import request, parse, error
+from urllib import request, error
 
 import boto3
 
-STEAM_STORE_BASE_URL = os.environ["STEAM_STORE_BASE_URL"]
+# Steam serves capsule art straight off its CDN at a predictable, appid-based
+# path. We hit that instead of the store appdetails API, which 403s from
+# datacenter IPs and has deprecated its capsule_image/header_image fields.
+STEAM_CDN_BASE_URL = os.environ.get("STEAM_CDN_BASE_URL", "https://cdn.cloudflare.steamstatic.com/steam/apps")
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 
-# Send a user agent to circumvent 403s
+# Send a browser-like User-Agent; the default urllib UA gets 403'd.
 _HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 logging.getLogger().setLevel(logging.INFO)
@@ -17,21 +20,23 @@ logger = logging.getLogger(__name__)
 s3 = boto3.client("s3")
 
 
+class CapsuleImageNotFound(Exception):
+    """Raised when the Steam CDN has no capsule art for an app (HTTP 404)."""
+
+
 def get_capsule_image_from_steam_store(steam_game_id):
-    params = parse.urlencode({"appids": steam_game_id})
-    url = f"{STEAM_STORE_BASE_URL}/api/appdetails?{params}"
+    url = f"{STEAM_CDN_BASE_URL}/{steam_game_id}/capsule_616x353.jpg"
 
-    with request.urlopen(request.Request(url, headers=_HEADERS)) as response:
-        if response.status != 200:
-            raise error.HTTPError(url, response.status, "Failed to fetch game data", {}, None)
-        data = json.loads(response.read())
-
-    capsule_image_url = data[str(steam_game_id)]["data"]["capsule_image"]
-
-    with request.urlopen(request.Request(capsule_image_url, headers=_HEADERS)) as img_response:
-        if img_response.status != 200:
-            raise error.HTTPError(capsule_image_url, img_response.status, "Failed to fetch capsule image", {}, None)
-        return img_response.read()
+    try:
+        with request.urlopen(request.Request(url, headers=_HEADERS)) as response:
+            return response.read()
+    except error.HTTPError as e:
+        # A 404 means this app simply has no capsule art — never will, so
+        # skip it rather than retrying into the DLQ. Anything else (rate
+        # limits, 5xx, transient network errors) should retry.
+        if e.code == 404:
+            raise CapsuleImageNotFound(url) from e
+        raise
 
 
 def handler(event, context):
@@ -48,7 +53,11 @@ def handler(event, context):
 
             steam_game_id = message["game_data"]["steam_game_id"]
 
-            capsule_image = get_capsule_image_from_steam_store(steam_game_id)
+            try:
+                capsule_image = get_capsule_image_from_steam_store(steam_game_id)
+            except CapsuleImageNotFound:
+                logger.warning("No capsule art on Steam CDN for game %s, skipping", steam_game_id)
+                continue
 
             s3.put_object(
                 Bucket=BUCKET_NAME,

@@ -9,8 +9,8 @@ variable "tags" {
   default     = {}
 }
 
-variable "steam_store_base_url" {
-  description = "The base URL for the Steam Store API"
+variable "steam_cdn_base_url" {
+  description = "The base URL for Steam's capsule image CDN (served per appid)"
   type        = string
-  default     = "https://api.steampowered.com"
+  default     = "https://cdn.cloudflare.steamstatic.com/steam/apps"
 }
