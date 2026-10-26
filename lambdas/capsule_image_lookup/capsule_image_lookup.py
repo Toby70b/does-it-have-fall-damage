@@ -8,6 +8,7 @@ import boto3
 STEAM_STORE_BASE_URL = os.environ["STEAM_STORE_BASE_URL"]
 BUCKET_NAME = os.environ["BUCKET_NAME"]
 
+# Send a user agent to circumvent 403s
 _HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 logging.getLogger().setLevel(logging.INFO)
