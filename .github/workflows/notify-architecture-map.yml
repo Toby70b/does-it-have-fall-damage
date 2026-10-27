@@ -35,7 +35,7 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Did any AWS resource change?
+      - name: Did the Terraform change substantively?
         id: check
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
@@ -44,15 +44,26 @@ jobs:
             exit 0
           fi
 
-          # Only resource/module/data lines matter. A reformatted file or a
-          # reworded comment leaves the map exactly as it was.
-          if git diff "${{ github.event.before }}" "${{ github.sha }}" -- '*.tf' \
-               | grep -qE '^[+-][[:space:]]*(resource|module|data)[[:space:]]+"'; then
+          before="${{ github.event.before }}"
+          case "$before" in
+            0000000*) echo "changed=true" >> "$GITHUB_OUTPUT"
+                      echo "No previous commit to compare; notifying."
+                      exit 0 ;;
+          esac
+
+          # Any added or removed line that is not blank and not a comment.
+          # Matching only resource/module/data is too narrow: renaming a
+          # variable can change which service a Lambda talks to, and that
+          # moves a node on the map. This still skips pure reformatting and
+          # comment-only edits, which was the point.
+          if git diff "$before" "${{ github.sha }}" -- '*.tf' \
+               | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' \
+               | sed 's/#.*$//' | grep -qE '[^+[:space:]-]'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "A resource, module or data block changed."
+            echo "Terraform changed substantively."
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Terraform changed, but no resource/module/data lines did."
+            echo "Only formatting or comments changed."
           fi
 
       - name: Tell the map
