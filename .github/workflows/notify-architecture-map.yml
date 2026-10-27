@@ -1,0 +1,68 @@
+# Tells Toby70b/tobysworld that this repo's infrastructure changed, so the
+# architecture map can be reconciled against it.
+#
+# Needs a secret named MAP_DISPATCH_TOKEN: a fine-grained PAT with
+# Contents: read-and-write on Toby70b/tobysworld ONLY. The built-in
+# GITHUB_TOKEN cannot trigger a workflow in another repository, which is the
+# whole reason that token exists. It expires, and when it does this workflow
+# still goes green while nothing happens downstream.
+#
+# The canonical copy lives at templates/notify-architecture-map.yml in
+# Toby70b/tobysworld.
+
+name: Notify architecture map
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.tf'
+  # Worth keeping: lets you re-trigger without pushing anything.
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # No permissions needed in THIS repo — the PAT carries the rights that
+    # matter, and they apply to the map repo rather than this one.
+    permissions: {}
+
+    steps:
+      # Most Terraform pushes do not change the architecture: formatting,
+      # comments, variable descriptions. Checking first avoids spending model
+      # quota on a diff the map cannot possibly care about.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Did any AWS resource change?
+        id: check
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Triggered by hand, notifying regardless."
+            exit 0
+          fi
+
+          # Only resource/module/data lines matter. A reformatted file or a
+          # reworded comment leaves the map exactly as it was.
+          if git diff "${{ github.event.before }}" "${{ github.sha }}" -- '*.tf' \
+               | grep -qE '^[+-][[:space:]]*(resource|module|data)[[:space:]]+"'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "A resource, module or data block changed."
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Terraform changed, but no resource/module/data lines did."
+          fi
+
+      - name: Tell the map
+        if: steps.check.outputs.changed == 'true'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.MAP_DISPATCH_TOKEN }}
+          repository: Toby70b/tobysworld
+          event-type: infra-changed
+          # Keep this small. The map repo checks this repo out itself rather
+          # than being sent a diff.
+          client-payload: |
+            {"repo": "${{ github.repository }}", "sha": "${{ github.sha }}"}
