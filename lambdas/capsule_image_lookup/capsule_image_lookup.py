@@ -48,7 +48,15 @@ def get_capsule_image_from_steam_store(steam_game_id):
         image_url = details.get(field)
         if not image_url:
             continue
-        image = _fetch(image_url)
+        try:
+            image = _fetch(image_url)
+        except error.HTTPError as e:
+            # A dead image URL (appdetails sometimes references art that no
+            # longer exists) isn't retryable - fall through to the next field.
+            if e.code == 404:
+                logger.warning("Field %s for %s 404s (%s); trying next field", field, steam_game_id, image_url)
+                continue
+            raise
         if len(image) >= _MIN_IMAGE_BYTES:
             return image
         logger.warning(
